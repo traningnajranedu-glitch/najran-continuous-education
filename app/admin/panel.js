@@ -2,6 +2,7 @@
 import {useEffect,useState} from "react";
 import * as XLSX from "xlsx";
 import {supabase} from "../../lib/supabase";
+import BrandHeader from "../components/BrandHeader";
 
 export default function AdminPanel(){
  const [session,setSession]=useState(null),[email,setEmail]=useState(""),[password,setPassword]=useState("");
@@ -18,10 +19,11 @@ export default function AdminPanel(){
   const out=[]; for(const r of a){ if(r[2] && r[1] && r[0]!== "م"){out.push({civil_id:String(r[2]).replace(/\\.0$/,""),name:String(r[1]).trim(),school:r[3]?String(r[3]).trim():"",specialty:"",status:"مرشح",message:""})}}
   if(out.length){const {error}=await supabase.from("candidates").upsert(out,{onConflict:"civil_id"});setMsg(error?error.message:`تم استيراد ${out.length} سجل.`);load()}
  }
- if(!session)return <main className="shell"><section className="card admin"><div className="pill">لوحة الإدارة</div><h1>تسجيل الدخول</h1><form onSubmit={login}><input type="email" placeholder="البريد الإلكتروني" value={email} onChange={e=>setEmail(e.target.value)} required/><input type="password" placeholder="كلمة المرور" value={password} onChange={e=>setPassword(e.target.value)} required/><button>دخول</button></form>{msg&&<div className="error">{msg}</div>}</section></main>;
+ if(!session)return <main className="shell admin-shell"><section className="card admin"><BrandHeader compact /><div className="section-label">لوحة الإدارة</div><h1>تسجيل الدخول</h1><form onSubmit={login}><input type="email" placeholder="البريد الإلكتروني" value={email} onChange={e=>setEmail(e.target.value)} required/><input type="password" placeholder="كلمة المرور" value={password} onChange={e=>setPassword(e.target.value)} required/><button>دخول</button></form>{msg&&<div className="error">{msg}</div>}</section></main>;
  const filtered=rows.filter(r=>(r.name+" "+r.civil_id+" "+(r.school||"")).includes(q));
- return <main className="shell"><section className="card admin">
-  <div className="top"><div><div className="pill">لوحة الإدارة</div><h1>إدارة الترشيحات</h1></div><button className="secondary" onClick={()=>supabase.auth.signOut()}>خروج</button></div>
+ return <main className="shell admin-shell"><section className="card admin">
+  <BrandHeader compact />
+  <div className="top"><div><div className="section-label">لوحة الإدارة</div><h1>إدارة الترشيحات</h1></div><button className="secondary" onClick={()=>supabase.auth.signOut()}>خروج</button></div>
   <form onSubmit={save} className="grid">
    <input placeholder="رقم السجل المدني" value={form.id} onChange={e=>setForm({...form,id:e.target.value.replace(/\D/g,"")})}/>
    <input placeholder="اسم المعلم/المعلمة" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>

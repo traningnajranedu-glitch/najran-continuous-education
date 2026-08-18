@@ -1,5 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import PrintButton from "./PrintButton";
+import BrandHeader from "../components/BrandHeader";
 
 function statusType(status = "") {
   const s = String(status).trim();
@@ -30,29 +31,31 @@ export default async function Lookup({searchParams}) {
   const type = statusType(person?.status);
   const message = person?.message || defaultMessage(person?.status);
 
-  return <main className="shell">
+  return <main className="shell lookup-shell">
     <section className={`card lookup-card ${person ? `status-${type}` : ""}`}>
-      <div className="pill">استعلام الترشيح</div>
-      <h1>نتيجة الاستعلام</h1>
+      <BrandHeader compact />
+      <div className="section-label">استعلام الترشيح</div>
+      <div className="page-heading"><div><h1>نتيجة الاستعلام</h1><p>بيانات حالة الترشيح في التعليم المستمر</p></div><div className="heading-mark">✓</div></div>
 
-      {!id && <p>أدخل رقم السجل المدني من الصفحة الرئيسية.</p>}
+      {!id && <div className="notice empty-state">أدخل رقم السجل المدني من الصفحة الرئيسية لعرض حالة الترشيح.</div>}
 
       {id && person && <div className={`result ${type}`}>
         <div className="result-title">
           <span className="status-icon">
             {type === "selected" ? "✓" : type === "not-selected" ? "!" : "•"}
           </span>
-          <h2>
+          <div><h2>
             {type === "selected" && "تم العثور على الترشيح"}
             {type === "not-selected" && "لم يتم الترشيح"}
             {type === "pending" && "الطلب تحت الإجراء"}
             {type === "apology" && "حالة الترشيح: معتذر"}
-          </h2>
+          </h2><span className="status-caption">حالة الترشيح</span></div>
         </div>
 
         <div className="print-content">
           <div className="print-header">
-            <div className="print-org">إدارة التعليم بنجران</div>
+            <img src="/moe-logo.jpg" alt="شعار وزارة التعليم" className="print-logo" />
+            <div className="print-org">الإدارة العامة للتعليم بمنطقة نجران</div>
             <div className="print-title">نتيجة الاستعلام عن الترشيح</div>
           </div>
 
@@ -67,9 +70,7 @@ export default async function Lookup({searchParams}) {
           <div className="print-date">تاريخ الاستعلام: {new Date().toLocaleDateString("ar-SA")}</div>
         </div>
 
-        <div className="print-actions">
-          <PrintButton />
-        </div>
+        {type !== "not-selected" && <div className="print-actions"><PrintButton /></div>}
       </div>}
 
       {id && !person && <div className="error">
@@ -78,7 +79,7 @@ export default async function Lookup({searchParams}) {
         {error && <small className="technical-error">تعذر الاتصال بقاعدة البيانات حاليًا.</small>}
       </div>}
 
-      <a href="/" className="back">عودة للاستعلام</a>
+      <Link href="/" className="back">← العودة للاستعلام</Link>
     </section>
   </main>;
 }
