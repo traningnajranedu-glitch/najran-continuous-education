@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import PrintButton from "./PrintButton";
 import BrandHeader from "../components/BrandHeader";
