@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BrandHeader from "./components/BrandHeader";
 
 const WEBHOOK_URL = "https://abrahem606.app.n8n.cloud/webhook/najran-education-ai";
@@ -9,6 +9,56 @@ export default function Home(){
  const [message,setMessage]=useState("");
  const [messages,setMessages]=useState([]);
  const [loading,setLoading]=useState(false);
+ const [listening,setListening]=useState(false);
+ const [speaking,setSpeaking]=useState(false);
+ const recognitionRef=useRef(null);
+
+ useEffect(()=>{
+   if(typeof window === "undefined") return;
+   const SpeechRecognition=window.SpeechRecognition || window.webkitSpeechRecognition;
+   if(!SpeechRecognition) return;
+   const recognition=new SpeechRecognition();
+   recognition.lang="ar-SA";
+   recognition.continuous=false;
+   recognition.interimResults=false;
+   recognition.onstart=()=>setListening(true);
+   recognition.onend=()=>setListening(false);
+   recognition.onerror=()=>setListening(false);
+   recognition.onresult=(event)=>{
+     const transcript=event.results?.[0]?.[0]?.transcript || "";
+     setMessage(transcript);
+   };
+   recognitionRef.current=recognition;
+   return ()=>{ try{recognition.stop();}catch{} };
+ },[]);
+
+ function toggleListening(){
+   const recognition=recognitionRef.current;
+   if(!recognition){
+     alert("المتصفح الحالي لا يدعم الإدخال الصوتي. جرّب Google Chrome أو Microsoft Edge.");
+     return;
+   }
+   try{
+     if(listening) recognition.stop();
+     else recognition.start();
+   }catch{}
+ }
+
+ function speak(text){
+   if(typeof window === "undefined" || !window.speechSynthesis) return;
+   window.speechSynthesis.cancel();
+   const utterance=new SpeechSynthesisUtterance(text);
+   utterance.lang="ar-SA";
+   utterance.rate=0.92;
+   utterance.pitch=1;
+   const voices=window.speechSynthesis.getVoices();
+   const saVoice=voices.find(v=>v.lang?.toLowerCase()==="ar-sa") || voices.find(v=>v.lang?.toLowerCase().startsWith("ar"));
+   if(saVoice) utterance.voice=saVoice;
+   utterance.onstart=()=>setSpeaking(true);
+   utterance.onend=()=>setSpeaking(false);
+   utterance.onerror=()=>setSpeaking(false);
+   window.speechSynthesis.speak(utterance);
+ }
 
  async function sendMessage(e){
   e?.preventDefault();
@@ -22,7 +72,9 @@ export default function Home(){
    if(!res.ok) throw new Error("تعذر الاتصال بالمساعد");
    const data=await res.json();
    const reply=data.reply || data.output || data.text || "عذرًا، لم يصل رد من المساعد حاليًا.";
-   setMessages(prev=>[...prev,{role:"assistant",text:String(reply).replace(/^=/,"")}]);
+   const cleanReply=String(reply).replace(/^=/,"");
+   setMessages(prev=>[...prev,{role:"assistant",text:cleanReply}]);
+   speak(cleanReply);
   }catch(err){
    setMessages(prev=>[...prev,{role:"assistant",text:"عذرًا، تعذر الاتصال بالمساعد التعليمي حاليًا. حاول مرة أخرى."}]);
   }finally{setLoading(false);}
@@ -44,15 +96,16 @@ export default function Home(){
    </div>
    <div className="chat-box">
     <div className="chat-messages" aria-live="polite">
-      {messages.length===0 && <div className="chat-welcome"><strong>مرحبًا بك 👋</strong><span>كيف يمكنني مساعدتك اليوم؟</span></div>}
-      {messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}><span>{m.text}</span></div>)}
+      {messages.length===0 && <div className="chat-welcome"><strong>مرحبًا بك 👋</strong><span>يمكنك الكتابة أو التحدث بالصوت، وسأجيبك مباشرة.</span></div>}
+      {messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}><span>{m.text}</span>{m.role==="assistant" && <button type="button" className="speak-replay" onClick={()=>speak(m.text)} aria-label="إعادة تشغيل الرد الصوتي">🔊</button>}</div>)}
       {loading && <div className="chat-message assistant"><span>جاري إعداد الرد...</span></div>}
     </div>
     <form className="ai-chat-input" onSubmit={sendMessage}>
-      <input value={message} onChange={e=>setMessage(e.target.value)} placeholder="اكتب سؤالك هنا..." aria-label="اكتب سؤالك هنا" disabled={loading}/>
-      <button type="button" aria-label="التحدث صوتيًا" disabled>🎤</button>
+      <input value={message} onChange={e=>setMessage(e.target.value)} placeholder="اكتب سؤالك هنا أو اضغط 🎤 للتحدث..." aria-label="اكتب سؤالك هنا" disabled={loading}/>
+      <button type="button" onClick={toggleListening} className={listening?"voice-active":""} aria-label={listening?"إيقاف التسجيل":"التحدث صوتيًا"}>{listening?"⏹️":"🎤"}</button>
       <button type="submit" disabled={loading || !message.trim()}>{loading?"...":"إرسال"}</button>
     </form>
+    <div className="voice-status" aria-live="polite">{listening?"🎙️ أستمع إليك الآن...":speaking?"🔊 المساعد يتحدث الآن...":""}</div>
    </div>
    <div className="home-footer"><span>الإدارة العامة للتعليم بمنطقة نجران</span></div>
   </section>
