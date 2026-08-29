@@ -5,9 +5,9 @@ export default function BrandHeader({compact=false}) {
         <img src="/moe-logo.jpg" alt="شعار وزارة التعليم" className="brand-logo" />
       </div>
       <div className="brand-copy">
-        <div className="brand-kicker">الإدارة العامة للتعليم بمنطقة نجران</div>
-        <div className="brand-title">التعليم المستمر</div>
-        <div className="brand-subtitle">خدمة الاستعلام عن حالة الترشيح</div>
+        <div className="brand-kicker">وزارة التعليم</div>
+        <div className="brand-title">إدارة التعليم بمنطقة نجران</div>
+        <div className="brand-subtitle">المساعد الذكي التعليمي</div>
       </div>
     </header>
   );
