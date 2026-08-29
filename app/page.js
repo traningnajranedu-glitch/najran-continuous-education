@@ -24,24 +24,15 @@ export default function Home(){
    recognition.onstart=()=>setListening(true);
    recognition.onend=()=>setListening(false);
    recognition.onerror=()=>setListening(false);
-   recognition.onresult=(event)=>{
-     const transcript=event.results?.[0]?.[0]?.transcript || "";
-     setMessage(transcript);
-   };
+   recognition.onresult=(event)=>setMessage(event.results?.[0]?.[0]?.transcript || "");
    recognitionRef.current=recognition;
    return ()=>{ try{recognition.stop();}catch{} };
  },[]);
 
  function toggleListening(){
    const recognition=recognitionRef.current;
-   if(!recognition){
-     alert("المتصفح الحالي لا يدعم الإدخال الصوتي. جرّب Google Chrome أو Microsoft Edge.");
-     return;
-   }
-   try{
-     if(listening) recognition.stop();
-     else recognition.start();
-   }catch{}
+   if(!recognition){ alert("المتصفح الحالي لا يدعم الإدخال الصوتي. جرّب Google Chrome أو Microsoft Edge."); return; }
+   try{ listening ? recognition.stop() : recognition.start(); }catch{}
  }
 
  function speak(text){
@@ -52,8 +43,8 @@ export default function Home(){
    utterance.rate=0.92;
    utterance.pitch=1;
    const voices=window.speechSynthesis.getVoices();
-   const saVoice=voices.find(v=>v.lang?.toLowerCase()==="ar-sa") || voices.find(v=>v.lang?.toLowerCase().startsWith("ar"));
-   if(saVoice) utterance.voice=saVoice;
+   const voice=voices.find(v=>v.lang?.toLowerCase()==="ar-sa") || voices.find(v=>v.lang?.toLowerCase().startsWith("ar"));
+   if(voice) utterance.voice=voice;
    utterance.onstart=()=>setSpeaking(true);
    utterance.onend=()=>setSpeaking(false);
    utterance.onerror=()=>setSpeaking(false);
@@ -69,45 +60,39 @@ export default function Home(){
   setLoading(true);
   try{
    const res=await fetch(WEBHOOK_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text})});
-   if(!res.ok) throw new Error("تعذر الاتصال بالمساعد");
+   if(!res.ok) throw new Error();
    const data=await res.json();
    const reply=data.reply || data.output || data.text || "عذرًا، لم يصل رد من المساعد حاليًا.";
    const cleanReply=String(reply).replace(/^=/,"");
    setMessages(prev=>[...prev,{role:"assistant",text:cleanReply}]);
    speak(cleanReply);
-  }catch(err){
+  }catch{
    setMessages(prev=>[...prev,{role:"assistant",text:"عذرًا، تعذر الاتصال بالمساعد التعليمي حاليًا. حاول مرة أخرى."}]);
   }finally{setLoading(false);}
  }
 
- function quick(text){ setMessage(text); }
-
  return <main className="shell ai-shell" dir="rtl">
-  <section className="hero ai-hero">
+  <section className="hero ai-hero modern-ai">
    <BrandHeader />
-   <div className="hero-badge"><span>خدمة ذكية</span><span className="badge-dot" /></div>
+   <div className="tech-line" />
    <div className="ai-icon" aria-hidden="true">🤖</div>
    <h1>المساعد التعليمي الذكي</h1>
-   <p className="hero-description">مساعدك الذكي للحصول على المعلومات والخدمات التعليمية التابعة للإدارة العامة للتعليم بمنطقة نجران</p>
-   <div className="quick-actions">
-    <button type="button" onClick={()=>quick("ما هي الخدمات التعليمية التي تقدمها إدارة التعليم بمنطقة نجران؟")}>الخدمات التعليمية</button>
-    <button type="button" onClick={()=>quick("ما هي الأسئلة الشائعة؟")}>الأسئلة الشائعة</button>
-    <button type="button" onClick={()=>quick("أحتاج التواصل مع الجهة المختصة")}>التواصل مع الجهة المختصة</button>
-   </div>
-   <div className="chat-box">
+   <p className="hero-description">إدارة التعليم المستمر — إدارة التعليم بنجران</p>
+   <div className="chat-box modern-chat">
+    <div className="chat-header"><span className="online-dot" /> المساعد متاح الآن</div>
     <div className="chat-messages" aria-live="polite">
-      {messages.length===0 && <div className="chat-welcome"><strong>مرحبًا بك 👋</strong><span>يمكنك الكتابة أو التحدث بالصوت، وسأجيبك مباشرة.</span></div>}
+      {messages.length===0 && <div className="chat-welcome"><strong>مرحبًا بك 👋</strong><span>كيف يمكنني مساعدتك اليوم؟ اكتب سؤالك أو تحدث بالصوت.</span></div>}
       {messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}><span>{m.text}</span>{m.role==="assistant" && <button type="button" className="speak-replay" onClick={()=>speak(m.text)} aria-label="إعادة تشغيل الرد الصوتي">🔊</button>}</div>)}
       {loading && <div className="chat-message assistant"><span>جاري إعداد الرد...</span></div>}
     </div>
     <form className="ai-chat-input" onSubmit={sendMessage}>
-      <input value={message} onChange={e=>setMessage(e.target.value)} placeholder="اكتب سؤالك هنا أو اضغط 🎤 للتحدث..." aria-label="اكتب سؤالك هنا" disabled={loading}/>
+      <input value={message} onChange={e=>setMessage(e.target.value)} placeholder="اكتب سؤالك هنا..." aria-label="اكتب سؤالك هنا" disabled={loading}/>
       <button type="button" onClick={toggleListening} className={listening?"voice-active":""} aria-label={listening?"إيقاف التسجيل":"التحدث صوتيًا"}>{listening?"⏹️":"🎤"}</button>
       <button type="submit" disabled={loading || !message.trim()}>{loading?"...":"إرسال"}</button>
     </form>
     <div className="voice-status" aria-live="polite">{listening?"🎙️ أستمع إليك الآن...":speaking?"🔊 المساعد يتحدث الآن...":""}</div>
    </div>
-   <div className="home-footer"><span>الإدارة العامة للتعليم بمنطقة نجران</span></div>
+   <div className="home-footer"><span>الإدارة العامة للتعليم بنجران</span></div>
   </section>
  </main>
 }
