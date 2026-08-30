@@ -61,13 +61,18 @@ export default function Home(){
   const value=String(text||"").trim(); if(!value||loading)return;
   setMessages(p=>[...p,{role:"user",text:value}]); setMessage(""); setLoading(true);
   try{
-   const res=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:value})});
+   const headers={"Content-Type":"application/json"};
+   if(typeof window !== "undefined"){
+    const token=window.localStorage.getItem("najran_school_access_token");
+    if(token) headers.Authorization=`Bearer ${token}`;
+   }
+   const res=await fetch("/api/chat",{method:"POST",headers,body:JSON.stringify({message:value})});
    const data=await res.json(); if(!res.ok)throw new Error(data?.error||"request failed");
    const reply=String(data.reply||"").trim()||"عذرًا، لم يصل رد من المساعد حاليًا.";
    setMessages(p=>[...p,{role:"assistant",text:reply,audio:data.audio||null,audioType:data.audioType||"audio/mpeg"}]);
    if(data.audio)await playAudio(data.audio,data.audioType||"audio/mpeg");
-  }catch{
-   setMessages(p=>[...p,{role:"assistant",text:"عذرًا، تعذر الاتصال بالمساعد التعليمي حاليًا.",audio:null}]);
+  }catch(error){
+   setMessages(p=>[...p,{role:"assistant",text:error?.message||"عذرًا، تعذر الاتصال بالمساعد التعليمي حاليًا.",audio:null}]);
   }finally{setLoading(false);}
  }
 
