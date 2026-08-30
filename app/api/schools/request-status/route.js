@@ -1,50 +1,48 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.KNOWLEDGE_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY;
 
-function clean(value) {
-  return String(value ?? "").trim();
-}
+function clean(value) { return String(value ?? "").trim(); }
 
-async function supabase(path, options = {}) {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error("إعدادات قاعدة المعرفة غير مكتملة على الخادم.");
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    cache: "no-store",
-  });
-  const text = await response.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch {}
-  if (!response.ok) throw new Error(data?.message || data?.hint || "تعذر الاتصال بقاعدة البيانات.");
-  return data;
+async function getAuthorizedMember(request) {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error("إعدادات Supabase غير مكتملة على الخادم.");
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return { error: "يلزم تسجيل الدخول.", status: 401 };
+
+  const client = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: userData, error: userError } = await client.auth.getUser(token);
+  if (userError || !userData?.user) return { error: "جلسة الدخول غير صالحة.", status: 401 };
+
+  const { data: member, error: memberError } = await client
+    .from("school_members")
+    .select("school_id, role, active, schools!inner(id,name,code,active)")
+    .eq("user_id", userData.user.id)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (memberError) return { error: "تعذر التحقق من عضوية المدرسة.", status: 500 };
+  if (!member || !member.schools?.active) return { error: "لا توجد مدرسة مفعلة مرتبطة بهذا الحساب.", status: 403 };
+  if (!["school_admin", "teacher"].includes(member.role)) return { error: "ليس لديك صلاحية رفع تقارير المدرسة.", status: 403 };
+
+  return { userId: userData.user.id, member, client };
 }
 
 export async function POST(request) {
   try {
+    const auth = await getAuthorizedMember(request);
+    if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
     const body = await request.json();
-    const schoolName = clean(body?.schoolName);
-    const schoolCode = clean(body?.schoolCode);
     const fileName = clean(body?.fileName) || "excel-report";
-    const rows = Array.isArray(body?.rows) ? body.rows : [];
-
-    if (!schoolName || !schoolCode) return NextResponse.json({ error: "اسم المدرسة ورمز المدرسة مطلوبان." }, { status: 400 });
-    if (!rows.length) return NextResponse.json({ error: "لا توجد سجلات في التقرير." }, { status: 400 });
-    if (rows.length > 5000) return NextResponse.json({ error: "الحد الأقصى للملف 5000 سجل في الرفع الواحد." }, { status: 400 });
-
-    const schools = await supabase(`schools?select=id,name,code,active&code=eq.${encodeURIComponent(schoolCode)}&limit=1`);
-    const school = schools?.[0];
-    if (!school || !school.active || school.name !== schoolName) {
-      return NextResponse.json({ error: "بيانات المدرسة غير صحيحة أو المدرسة غير مفعلة." }, { status: 403 });
-    }
-
     const reportDate = clean(body?.reportDate) || new Date().toISOString().slice(0, 10);
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    if (!rows.length) return NextResponse.json({ error: "لا توجد سجلات في التقرير." }, { status: 400 });
+    if (rows.length > 5000) return NextResponse.json({ error: "الحد الأقصى للرفع الواحد 5000 سجل." }, { status: 400 });
+
+    const school = auth.member.schools;
     const payload = rows.map((row) => ({
       school_id: school.id,
       report_date: reportDate,
@@ -55,18 +53,18 @@ export async function POST(request) {
       status_date: clean(row.status_date) || null,
       notes: clean(row.notes),
       source_file_name: fileName,
-      uploaded_by: null,
-    })).filter(r => r.request_number && r.status);
+      uploaded_by: auth.userId,
+    })).filter((r) => r.request_number && r.status);
 
     if (!payload.length) return NextResponse.json({ error: "لم يتم العثور على سجلات صالحة. يجب أن يحتوي كل سجل على رقم الطلب والحالة." }, { status: 400 });
 
-    const saved = await supabase("request_status_reports?on_conflict=school_id,report_date,request_number", {
-      method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify(payload),
-    });
+    const { data, error } = await auth.client
+      .from("request_status_reports")
+      .upsert(payload, { onConflict: "school_id,report_date,request_number", ignoreDuplicates: false })
+      .select("id");
 
-    return NextResponse.json({ ok: true, count: Array.isArray(saved) ? saved.length : payload.length, school: school.name, reportDate });
+    if (error) return NextResponse.json({ error: error.message || "تعذر حفظ التقرير." }, { status: 500 });
+    return NextResponse.json({ ok: true, count: Array.isArray(data) ? data.length : payload.length, school: school.name, reportDate });
   } catch (error) {
     return NextResponse.json({ error: error?.message || "تعذر حفظ التقرير حاليًا." }, { status: 500 });
   }
