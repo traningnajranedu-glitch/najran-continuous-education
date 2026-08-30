@@ -1,27 +1,10 @@
 import { NextResponse } from "next/server";
+import { searchNajranKnowledge } from "@/data/najran-knowledge";
 
 const N8N_WEBHOOK_URL = process.env.N8N_EDUCATION_WEBHOOK_URL || "https://abrahem606.app.n8n.cloud/webhook/najran-education-ai";
 const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || "qatarcentral";
 const AZURE_VOICE = process.env.AZURE_SPEECH_VOICE || "ar-SA-HamedNeural";
-
-const OFFICIAL_CONTEXT = {
-  base: `مصادر رسمية مرتبطة بإدارة التعليم بمنطقة نجران:\n- https://sites.moe.gov.sa/Najran/\n- https://sites.moe.gov.sa/Najran/departments/\n- https://sites.moe.gov.sa/Najran/workplace/\n- https://sites.moe.gov.sa/Najran/contact-us/\nسياسة الدقة: استخدم هذه المصادر عندما تكون مرتبطة بالسؤال. لا تخترع شروطًا أو مواعيد أو إجراءات أو أرقامًا. إذا لم تتوفر المعلومة، صرّح بأنها غير متاحة في المصادر المتصلة.`,
-  students: `الخدمات المرتبطة بالطلاب والطالبات: الموقع الرسمي لتعليم نجران يربط بنظام نور ومنصة مدرستي ومنصة روضتي وبوابة عين. المصدر: https://sites.moe.gov.sa/Najran/`,
-  teachers: `الخدمات المرتبطة بالمعلمين والمعلمات: الموقع الرسمي لتعليم نجران يربط بنظام فارس. المصدر: https://sites.moe.gov.sa/Najran/`,
-  schools: `الخدمات المرتبطة بالمدارس: الموقع الرسمي لتعليم نجران يوفر صفحة مكاتب التعليم، وصفحة الإدارات، ويربط بمنصة مدرستي. المصادر: https://sites.moe.gov.sa/Najran/workplace/ و https://sites.moe.gov.sa/Najran/departments/ و https://sites.moe.gov.sa/Najran/`,
-  guidance: `للتوجيه والتواصل: الصفحة الرسمية لاتصل بنا لتعليم نجران تعرض عنوان الإدارة ورقم الهاتف والبريد الرسمي. المصدر: https://sites.moe.gov.sa/Najran/contact-us/`
-};
-
-function getOfficialContext(message) {
-  const text = String(message).toLowerCase();
-  let extra = OFFICIAL_CONTEXT.base;
-  if (/طلاب|طالبات|نور|مدرستي|روضتي|عين/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.students;
-  if (/معلم|معلمة|معلمين|معلمات|فارس|وظيف|إجاز/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.teachers;
-  if (/مدرس|مدارس|مكتب التعليم|مدرست/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.schools;
-  if (/تواصل|هاتف|رقم|بريد|جهة مختصة|استفسار عام/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.guidance;
-  return extra;
-}
 
 function polishForSpeech(value) {
   return String(value)
@@ -72,18 +55,47 @@ async function synthesize(ssml) {
   });
 }
 
+function buildKnowledgeContext(message) {
+  const matches = searchNajranKnowledge(message);
+  if (!matches.length) {
+    return "لم توجد مادة مطابقة مباشرة في قاعدة المعرفة المحلية. لا تفترض تفاصيل غير موثقة، واذكر للمستفيد أن المعلومة غير متاحة في المصادر المتصلة.";
+  }
+  return matches
+    .map((item) => [
+      `العنوان: ${item.title}`,
+      `الفئة: ${item.category}`,
+      `المحتوى الموثق: ${item.content}`,
+      `المصدر الرسمي: ${item.sourceUrl}`,
+      `تاريخ التحقق: ${item.verifiedAt}`,
+    ].join("\n"))
+    .join("\n\n");
+}
+
+function buildEnrichedMessage(message) {
+  const knowledge = buildKnowledgeContext(message);
+  return [
+    "طلب المستفيد:",
+    message,
+    "",
+    "مرجع قاعدة المعرفة الرسمية:",
+    knowledge,
+    "",
+    "تعليمات الاستفادة من المرجع:",
+    "استخدم المرجع لتثبيت الحقائق المرتبطة بالسؤال. لا تخترع إجراءً أو شرطًا أو موعدًا أو رقمًا غير موجود في المرجع. إذا لم تكفِ المعلومات، صرّح بعدم توفرها في المصادر المتصلة ووجّه إلى المصدر الرسمي عند وجوده.",
+  ].join("\n");
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     if (!message) return NextResponse.json({ error: "الرسالة مطلوبة" }, { status: 400 });
 
-    const enrichedMessage = `${message}\n\n[معلومات مرجعية رسمية للمساعد]\n${getOfficialContext(message)}`;
-
+    const enrichedMessage = buildEnrichedMessage(message);
     const n8nResponse = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ message: enrichedMessage }),
+      body: JSON.stringify({ message: enrichedMessage, user_message: message }),
       cache: "no-store",
     });
     if (!n8nResponse.ok) return NextResponse.json({ error: "تعذر الاتصال بالمساعد التعليمي" }, { status: 502 });
@@ -98,7 +110,11 @@ export async function POST(request) {
     if (!ttsResponse.ok) return NextResponse.json({ reply, audio: null, audioType: null });
 
     const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
-    return NextResponse.json({ reply, audio: audioBuffer.toString("base64"), audioType: "audio/mpeg" });
+    return NextResponse.json({
+      reply,
+      audio: audioBuffer.toString("base64"),
+      audioType: "audio/mpeg",
+    });
   } catch {
     return NextResponse.json({ error: "تعذر معالجة الطلب حاليًا" }, { status: 500 });
   }
