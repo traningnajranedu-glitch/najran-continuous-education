@@ -5,12 +5,21 @@ const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || "qatarcentral";
 const AZURE_VOICE = process.env.AZURE_SPEECH_VOICE || "ar-SA-HamedNeural";
 
-function cleanForSpeech(value) {
+function polishForSpeech(value) {
   return String(value)
     .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, "")
-    .replace(/^[•\-*\d\s]+(?=[^\n])/gm, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^[•\-*\d]+[.)]?\s*/gm, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1")
+    .replace(/\bوش\b/gu, "ما")
+    .replace(/\bتبي\b/gu, "تحتاج")
+    .replace(/\bأبي\b/gu, "أرغب")
+    .replace(/\bمو\b/gu, "غير")
+    .replace(/\bهذي\b/gu, "هذه")
+    .replace(/\bاللي\b/gu, "التي")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -24,17 +33,12 @@ function escapeXml(value) {
 }
 
 function buildSsml(text, enhanced = true) {
-  const escaped = escapeXml(cleanForSpeech(text));
+  const cleaned = polishForSpeech(text);
+  const escaped = escapeXml(cleaned);
   if (!enhanced) {
     return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}">${escaped}</voice></speak>`;
   }
-  const spoken = escaped
-    .replace(/\n+/g, '<break time="420ms"/>')
-    .replace(/،/g, '،<break time="170ms"/>')
-    .replace(/؛/g, '؛<break time="230ms"/>')
-    .replace(/[.!؟]/g, (m) => `${m}<break time="360ms"/>`)
-    .replace(/:/g, ':<break time="220ms"/>');
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}"><prosody rate="-8%" pitch="+1%" volume="+1dB">${spoken}</prosody></voice></speak>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}"><prosody rate="-3%" pitch="0%" volume="+1dB">${escaped}</prosody></voice></speak>`;
 }
 
 async function synthesize(ssml) {
@@ -70,17 +74,11 @@ export async function POST(request) {
     if (!AZURE_SPEECH_KEY) return NextResponse.json({ reply, audio: null, audioType: null });
 
     let ttsResponse = await synthesize(buildSsml(reply, true));
-    if (!ttsResponse.ok) {
-      ttsResponse = await synthesize(buildSsml(reply, false));
-    }
+    if (!ttsResponse.ok) ttsResponse = await synthesize(buildSsml(reply, false));
     if (!ttsResponse.ok) return NextResponse.json({ reply, audio: null, audioType: null });
 
     const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
-    return NextResponse.json({
-      reply,
-      audio: audioBuffer.toString("base64"),
-      audioType: "audio/mpeg",
-    });
+    return NextResponse.json({ reply, audio: audioBuffer.toString("base64"), audioType: "audio/mpeg" });
   } catch {
     return NextResponse.json({ error: "تعذر معالجة الطلب حاليًا" }, { status: 500 });
   }
