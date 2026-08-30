@@ -5,6 +5,14 @@ const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || "qatarcentral";
 const AZURE_VOICE = process.env.AZURE_SPEECH_VOICE || "ar-SA-HamedNeural";
 
+function cleanForSpeech(value) {
+  return String(value)
+    .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -12,6 +20,16 @@ function escapeXml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+}
+
+function buildSsml(text) {
+  const escaped = escapeXml(cleanForSpeech(text));
+  return escaped
+    .replace(/\n+/g, '<break time="420ms"/>')
+    .replace(/،/g, '،<break time="170ms"/>')
+    .replace(/؛/g, '؛<break time="230ms"/>')
+    .replace(/[.!؟]/g, (m) => `${m}<break time="360ms"/>`)
+    .replace(/:/g, ':<break time="220ms"/>');
 }
 
 export async function POST(request) {
@@ -39,7 +57,7 @@ export async function POST(request) {
       return NextResponse.json({ reply, audio: null, audioType: null });
     }
 
-    const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}"><prosody rate="-5%" pitch="0%">${escapeXml(reply)}</prosody></voice></speak>`;
+    const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}"><prosody rate="-8%" pitch="+1%" volume="+1dB">${buildSsml(reply)}</prosody></voice></speak>`;
 
     const ttsResponse = await fetch(`https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
       method: "POST",
