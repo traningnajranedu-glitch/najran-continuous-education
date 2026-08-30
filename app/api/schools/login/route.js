@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-const SUPABASE_URL = process.env.KNOWLEDGE_SUPABASE_URL || "https://cbqtmssmnetbnuohnacz.supabase.co";
-const ANON_KEY = process.env.KNOWLEDGE_SUPABASE_ANON_KEY || process.env.KNOWLEDGE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
+// This login endpoint is intentionally pinned to the dedicated knowledge_base project.
+const SUPABASE_URL = "https://cbqtmssmnetbnuohnacz.supabase.co";
+const ANON_KEY = "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
 const SERVICE_ROLE_KEY = process.env.KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY;
 
 async function publicAuth(path, options = {}) {
@@ -60,7 +61,7 @@ export async function POST(request) {
       `/rest/v1/school_members?select=school_id,role,active&user_id=eq.${encodeURIComponent(userId)}&active=eq.true&limit=1`
     );
     if (!memberResponse.ok) {
-      return NextResponse.json({ error: "تعذر التحقق من ربط الحساب بالمدرسة.", details: members?.message || members?.hint || null }, { status: 500 });
+      return NextResponse.json({ error: "تعذر التحقق من ربط الحساب بالمدرسة." }, { status: 500 });
     }
 
     const member = Array.isArray(members) ? members[0] : null;
@@ -70,7 +71,7 @@ export async function POST(request) {
       `/rest/v1/schools?select=id,name,code,active&id=eq.${encodeURIComponent(member.school_id)}&active=eq.true&limit=1`
     );
     if (!schoolResponse.ok) {
-      return NextResponse.json({ error: "تعذر التحقق من بيانات المدرسة.", details: schools?.message || schools?.hint || null }, { status: 500 });
+      return NextResponse.json({ error: "تعذر التحقق من بيانات المدرسة." }, { status: 500 });
     }
 
     const school = Array.isArray(schools) ? schools[0] : null;
