@@ -5,6 +5,26 @@ import * as XLSX from "xlsx";
 
 function normalize(v) { return String(v ?? "").trim(); }
 
+function normalizeDate(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const text = normalize(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, "0");
+    const d = String(parsed.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return text;
+}
+
 function mapRows(rows) {
   return rows.map((r, i) => ({
     id: i + 1,
@@ -12,7 +32,7 @@ function mapRows(rows) {
     applicant_name: normalize(r["اسم المستفيد"] || r["اسم الطالب"] || r["applicant_name"]),
     service: normalize(r["الخدمة"] || r["service"]),
     status: normalize(r["الحالة"] || r["status"]),
-    status_date: normalize(r["تاريخ الحالة"] || r["status_date"]),
+    status_date: normalizeDate(r["تاريخ الحالة"] || r["status_date"]),
     notes: normalize(r["ملاحظات"] || r["notes"]),
   }));
 }
@@ -62,6 +82,7 @@ export default function SchoolsPortal() {
     if (!session?.access_token || !school) return setMsg("سجّل الدخول أولًا.");
     if (!mapped.length) return setMsg("اختر ملف Excel يحتوي على بيانات الطلبات.");
     if (mapped.some((r) => !r.request_number || !r.status)) return setMsg("تأكد أن كل سجل يحتوي على رقم الطلب والحالة.");
+    if (mapped.some((r) => r.status_date && !/^\d{4}-\d{2}-\d{2}$/.test(r.status_date))) return setMsg("يوجد تاريخ حالة غير صالح. استخدم تاريخًا بصيغة YYYY-MM-DD.");
     if (mapped.length > 5000) return setMsg("الحد الأقصى للرفع الواحد 5000 سجل.");
     setBusy(true); setMsg("");
     try {
