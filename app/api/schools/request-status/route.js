@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://cbqtmssmnetbnuohnacz.supabase.co";
-const ANON_KEY = process.env.KNOWLEDGE_SUPABASE_ANON_KEY || process.env.KNOWLEDGE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
+// Pin the public key to the dedicated knowledge_base project so a mismatched
+// Vercel environment variable cannot make authorization appear to be missing.
+const ANON_KEY = "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
 
 function clean(value) { return String(value ?? "").trim(); }
 
