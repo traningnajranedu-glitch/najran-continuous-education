@@ -15,13 +15,16 @@ async function publicAuth(options = {}) {
   });
 }
 
-async function authenticatedGet(path, accessToken) {
+async function rpc(path, accessToken) {
   return fetch(`${SUPABASE_URL}${path}`, {
+    method: "POST",
     headers: {
       apikey: ANON_KEY,
       Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
       Accept: "application/json",
     },
+    body: "{}",
     cache: "no-store",
   });
 }
@@ -53,49 +56,24 @@ export async function POST(request) {
       );
     }
 
-    const userId = authData.user.id;
-    const memberResponse = await authenticatedGet(
-      `/rest/v1/school_members?select=school_id,role,active&user_id=eq.${encodeURIComponent(userId)}&active=eq.true&limit=1`,
-      authData.access_token,
-    );
-    const members = await readJson(memberResponse);
+    const membershipResponse = await rpc("/rest/v1/rpc/get_my_school_membership", authData.access_token);
+    const membershipData = await readJson(membershipResponse);
 
-    if (!memberResponse.ok) {
+    if (!membershipResponse.ok) {
       return NextResponse.json({
-        error: "تعذر قراءة عضوية المدرسة للحساب.",
-        stage: "school_members",
-        status: memberResponse.status,
+        error: "تعذر التحقق من عضوية المدرسة للحساب.",
+        stage: "membership_rpc",
+        status: membershipResponse.status,
+        details: membershipData?.message || membershipData?.hint || null,
       }, { status: 500 });
     }
 
-    const member = Array.isArray(members) ? members[0] : null;
-    if (!member) {
+    const member = Array.isArray(membershipData) ? membershipData[0] : membershipData;
+    if (!member?.school_id) {
       return NextResponse.json({
         error: "لم يتم العثور على عضوية مدرسة فعالة لهذا الحساب.",
         stage: "membership_not_found",
-        authenticated_user_id: userId,
-      }, { status: 403 });
-    }
-
-    const schoolResponse = await authenticatedGet(
-      `/rest/v1/schools?select=id,name,code,active&id=eq.${encodeURIComponent(member.school_id)}&active=eq.true&limit=1`,
-      authData.access_token,
-    );
-    const schools = await readJson(schoolResponse);
-
-    if (!schoolResponse.ok) {
-      return NextResponse.json({
-        error: "تعذر قراءة بيانات المدرسة.",
-        stage: "schools",
-        status: schoolResponse.status,
-      }, { status: 500 });
-    }
-
-    const school = Array.isArray(schools) ? schools[0] : null;
-    if (!school) {
-      return NextResponse.json({
-        error: "تم العثور على العضوية، لكن المدرسة نفسها غير فعالة أو غير موجودة.",
-        stage: "school_not_found",
+        authenticated_user_id: authData.user.id,
       }, { status: 403 });
     }
 
@@ -103,8 +81,12 @@ export async function POST(request) {
       access_token: authData.access_token,
       refresh_token: authData.refresh_token || null,
       expires_in: authData.expires_in || null,
-      user: { id: userId, email: authData.user.email || email },
-      school: { id: school.id, name: school.name, code: school.code },
+      user: { id: authData.user.id, email: authData.user.email || email },
+      school: {
+        id: member.school_id,
+        name: member.school_name,
+        code: member.school_code,
+      },
       role: member.role,
     });
   } catch (error) {
