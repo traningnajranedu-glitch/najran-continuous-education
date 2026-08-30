@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const SUPABASE_URL = process.env.KNOWLEDGE_SUPABASE_URL || "https://cbqtmssmnetbnuohnacz.supabase.co";
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
+const ANON_KEY = process.env.KNOWLEDGE_SUPABASE_ANON_KEY || process.env.KNOWLEDGE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
 const SERVICE_ROLE_KEY = process.env.KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY;
 
 async function supabaseFetch(path, options = {}) {
@@ -43,11 +43,17 @@ export async function POST(request) {
         headers: {
           apikey: SERVICE_ROLE_KEY,
           Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json",
         },
         cache: "no-store",
       },
     );
-    const members = await memberResponse.json();
+    const memberText = await memberResponse.text();
+    let members = [];
+    try { members = memberText ? JSON.parse(memberText) : []; } catch {}
+    if (!memberResponse.ok) {
+      return NextResponse.json({ error: "تعذر التحقق من ربط الحساب بالمدرسة.", details: members?.message || members?.hint || null }, { status: 500 });
+    }
     const member = members?.[0];
     if (!member) return NextResponse.json({ error: "لا توجد مدرسة مفعلة مرتبطة بهذا الحساب." }, { status: 403 });
 
