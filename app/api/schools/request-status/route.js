@@ -1,57 +1,36 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://cbqtmssmnetbnuohnacz.supabase.co";
-// Pin the public key to the dedicated knowledge_base project so a mismatched
-// Vercel environment variable cannot make authorization appear to be missing.
 const ANON_KEY = "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
 
 function clean(value) { return String(value ?? "").trim(); }
 
-async function getAuthorizedMember(request) {
-  const authHeader = request.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-  if (!token) return { error: "يلزم تسجيل الدخول.", status: 401 };
-
-  const client = createClient(SUPABASE_URL, ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
+async function callRpc(name, body, accessToken) {
+  return fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
   });
+}
 
-  const { data: userData, error: userError } = await client.auth.getUser(token);
-  if (userError || !userData?.user) return { error: "جلسة الدخول غير صالحة.", status: 401 };
-
-  const { data: member, error: memberError } = await client
-    .from("school_members")
-    .select("school_id, role, active")
-    .eq("user_id", userData.user.id)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (memberError) return { error: memberError.message || "تعذر قراءة عضوية المدرسة.", status: 500 };
-  if (!member) return { error: "لا توجد مدرسة مفعلة مرتبطة بهذا الحساب.", status: 403 };
-  if (!["school_admin", "teacher"].includes(member.role)) {
-    return { error: "ليس لديك صلاحية رفع تقارير المدرسة.", status: 403 };
-  }
-
-  const { data: school, error: schoolError } = await client
-    .from("schools")
-    .select("id,name,code,active")
-    .eq("id", member.school_id)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (schoolError) return { error: schoolError.message || "تعذر قراءة بيانات المدرسة.", status: 500 };
-  if (!school) return { error: "المدرسة المرتبطة بالحساب غير مفعلة.", status: 403 };
-
-  return { userId: userData.user.id, member, school, client };
+async function readJson(response) {
+  const text = await response.text();
+  try { return text ? JSON.parse(text) : null; } catch { return null; }
 }
 
 export async function POST(request) {
   try {
-    const auth = await getAuthorizedMember(request);
-    if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const authHeader = request.headers.get("authorization") || "";
+    const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (!accessToken) {
+      return NextResponse.json({ error: "يلزم تسجيل الدخول." }, { status: 401 });
+    }
 
     const body = await request.json();
     const fileName = clean(body?.fileName) || "excel-report";
@@ -61,38 +40,47 @@ export async function POST(request) {
     if (!rows.length) return NextResponse.json({ error: "لا توجد سجلات في التقرير." }, { status: 400 });
     if (rows.length > 5000) return NextResponse.json({ error: "الحد الأقصى للرفع الواحد 5000 سجل." }, { status: 400 });
 
-    const payload = rows
-      .map((row) => ({
-        school_id: auth.school.id,
-        report_date: reportDate,
-        request_number: clean(row.request_number),
-        applicant_name: clean(row.applicant_name),
-        service: clean(row.service),
-        status: clean(row.status),
-        status_date: clean(row.status_date) || null,
-        notes: clean(row.notes),
-        source_file_name: fileName,
-        uploaded_by: auth.userId,
-      }))
-      .filter((r) => r.request_number && r.status);
+    const payload = rows.map((row) => ({
+      request_number: clean(row?.request_number),
+      applicant_name: clean(row?.applicant_name),
+      service: clean(row?.service),
+      status: clean(row?.status),
+      status_date: clean(row?.status_date),
+      notes: clean(row?.notes),
+    }));
 
-    if (!payload.length) {
-      return NextResponse.json({
-        error: "لم يتم العثور على سجلات صالحة. يجب أن يحتوي كل سجل على رقم الطلب والحالة.",
-      }, { status: 400 });
+    const response = await callRpc(
+      "submit_request_status_report",
+      { p_report_date: reportDate, p_file_name: fileName, p_rows: payload },
+      accessToken,
+    );
+    const result = await readJson(response);
+
+    if (!response.ok) {
+      const message = result?.message || result?.error || "تعذر اعتماد التقرير.";
+      if (String(message).includes("NO_ACTIVE_SCHOOL")) {
+        return NextResponse.json({ error: "لا توجد مدرسة مفعلة مرتبطة بهذا الحساب." }, { status: 403 });
+      }
+      if (String(message).includes("NO_UPLOAD_PERMISSION")) {
+        return NextResponse.json({ error: "ليس لديك صلاحية رفع تقارير المدرسة." }, { status: 403 });
+      }
+      if (String(message).includes("EMPTY_REPORT")) {
+        return NextResponse.json({ error: "لا توجد سجلات في التقرير." }, { status: 400 });
+      }
+      if (String(message).includes("REPORT_TOO_LARGE")) {
+        return NextResponse.json({ error: "الحد الأقصى للرفع الواحد 5000 سجل." }, { status: 400 });
+      }
+      if (String(message).includes("NO_VALID_ROWS")) {
+        return NextResponse.json({ error: "لم يتم العثور على سجلات صالحة. يجب أن يحتوي كل سجل على رقم الطلب والحالة." }, { status: 400 });
+      }
+      return NextResponse.json({ error: message }, { status: response.status || 500 });
     }
 
-    const { data, error } = await auth.client
-      .from("request_status_reports")
-      .upsert(payload, { onConflict: "school_id,report_date,request_number", ignoreDuplicates: false })
-      .select("id");
-
-    if (error) return NextResponse.json({ error: error.message || "تعذر حفظ التقرير." }, { status: 500 });
     return NextResponse.json({
       ok: true,
-      count: Array.isArray(data) ? data.length : payload.length,
-      school: auth.school.name,
+      count: Number(result?.count || 0),
       reportDate,
+      message: "تم اعتماد التقرير وحفظه بنجاح.",
     });
   } catch (error) {
     return NextResponse.json({ error: error?.message || "تعذر حفظ التقرير حاليًا." }, { status: 500 });
