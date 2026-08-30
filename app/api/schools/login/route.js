@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 const SUPABASE_URL = "https://cbqtmssmnetbnuohnacz.supabase.co";
 const ANON_KEY = "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
-const SERVICE_ROLE_KEY = process.env.KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY;
 
 async function publicAuth(options = {}) {
   return fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
@@ -16,12 +15,11 @@ async function publicAuth(options = {}) {
   });
 }
 
-async function adminGet(path) {
-  if (!SERVICE_ROLE_KEY) throw new Error("إعدادات قاعدة المعرفة غير مكتملة على الخادم.");
+async function authenticatedGet(path, accessToken) {
   return fetch(`${SUPABASE_URL}${path}`, {
     headers: {
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
     },
     cache: "no-store",
@@ -41,9 +39,6 @@ export async function POST(request) {
     if (!email || !password) {
       return NextResponse.json({ error: "البريد الإلكتروني وكلمة المرور مطلوبان." }, { status: 400 });
     }
-    if (!SERVICE_ROLE_KEY) {
-      return NextResponse.json({ error: "إعدادات قاعدة المعرفة غير مكتملة على الخادم." }, { status: 500 });
-    }
 
     const authResponse = await publicAuth({
       method: "POST",
@@ -59,8 +54,9 @@ export async function POST(request) {
     }
 
     const userId = authData.user.id;
-    const memberResponse = await adminGet(
+    const memberResponse = await authenticatedGet(
       `/rest/v1/school_members?select=school_id,role,active&user_id=eq.${encodeURIComponent(userId)}&active=eq.true&limit=1`,
+      authData.access_token,
     );
     const members = await readJson(memberResponse);
 
@@ -81,8 +77,9 @@ export async function POST(request) {
       }, { status: 403 });
     }
 
-    const schoolResponse = await adminGet(
+    const schoolResponse = await authenticatedGet(
       `/rest/v1/schools?select=id,name,code,active&id=eq.${encodeURIComponent(member.school_id)}&active=eq.true&limit=1`,
+      authData.access_token,
     );
     const schools = await readJson(schoolResponse);
 
