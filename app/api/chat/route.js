@@ -5,6 +5,24 @@ const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || "qatarcentral";
 const AZURE_VOICE = process.env.AZURE_SPEECH_VOICE || "ar-SA-HamedNeural";
 
+const OFFICIAL_CONTEXT = {
+  base: `مصادر رسمية مرتبطة بإدارة التعليم بمنطقة نجران:\n- https://sites.moe.gov.sa/Najran/\n- https://sites.moe.gov.sa/Najran/departments/\n- https://sites.moe.gov.sa/Najran/workplace/\n- https://sites.moe.gov.sa/Najran/contact-us/\nسياسة الدقة: استخدم هذه المصادر عندما تكون مرتبطة بالسؤال. لا تخترع شروطًا أو مواعيد أو إجراءات أو أرقامًا. إذا لم تتوفر المعلومة، صرّح بأنها غير متاحة في المصادر المتصلة.`,
+  students: `الخدمات المرتبطة بالطلاب والطالبات: الموقع الرسمي لتعليم نجران يربط بنظام نور ومنصة مدرستي ومنصة روضتي وبوابة عين. المصدر: https://sites.moe.gov.sa/Najran/`,
+  teachers: `الخدمات المرتبطة بالمعلمين والمعلمات: الموقع الرسمي لتعليم نجران يربط بنظام فارس. المصدر: https://sites.moe.gov.sa/Najran/`,
+  schools: `الخدمات المرتبطة بالمدارس: الموقع الرسمي لتعليم نجران يوفر صفحة مكاتب التعليم، وصفحة الإدارات، ويربط بمنصة مدرستي. المصادر: https://sites.moe.gov.sa/Najran/workplace/ و https://sites.moe.gov.sa/Najran/departments/ و https://sites.moe.gov.sa/Najran/`,
+  guidance: `للتوجيه والتواصل: الصفحة الرسمية لاتصل بنا لتعليم نجران تعرض عنوان الإدارة ورقم الهاتف والبريد الرسمي. المصدر: https://sites.moe.gov.sa/Najran/contact-us/`
+};
+
+function getOfficialContext(message) {
+  const text = String(message).toLowerCase();
+  let extra = OFFICIAL_CONTEXT.base;
+  if (/طلاب|طالبات|نور|مدرستي|روضتي|عين/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.students;
+  if (/معلم|معلمة|معلمين|معلمات|فارس|وظيف|إجاز/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.teachers;
+  if (/مدرس|مدارس|مكتب التعليم|مدرست/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.schools;
+  if (/تواصل|هاتف|رقم|بريد|جهة مختصة|استفسار عام/.test(text)) extra += "\n" + OFFICIAL_CONTEXT.guidance;
+  return extra;
+}
+
 function polishForSpeech(value) {
   return String(value)
     .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, "")
@@ -60,10 +78,12 @@ export async function POST(request) {
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     if (!message) return NextResponse.json({ error: "الرسالة مطلوبة" }, { status: 400 });
 
+    const enrichedMessage = `${message}\n\n[معلومات مرجعية رسمية للمساعد]\n${getOfficialContext(message)}`;
+
     const n8nResponse = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message: enrichedMessage }),
       cache: "no-store",
     });
     if (!n8nResponse.ok) return NextResponse.json({ error: "تعذر الاتصال بالمساعد التعليمي" }, { status: 502 });
