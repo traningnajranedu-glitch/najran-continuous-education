@@ -91,7 +91,8 @@ export default function SchoolsPortal() {
         body: JSON.stringify({ reportDate, fileName, rows: mapped }),
       });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "تعذر حفظ التقرير.");
-      setMsg(`تم اعتماد التقرير بنجاح. المدرسة: ${data.school} — السجلات: ${data.count}`);
+      const schoolName = school?.name || data.school || data.school_name || "المدرسة المرتبطة بالحساب";
+      setMsg(`تم اعتماد التقرير بنجاح. المدرسة: ${schoolName} — السجلات: ${data.count}`);
     } catch (error) { setMsg(error?.message || "تعذر حفظ التقرير."); }
     finally { setBusy(false); }
   }
