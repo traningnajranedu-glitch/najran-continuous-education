@@ -2,17 +2,16 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://cbqtmssmnetbnuohnacz.supabase.co";
-const SERVICE_ROLE_KEY = process.env.KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY;
+const ANON_KEY = process.env.KNOWLEDGE_SUPABASE_ANON_KEY || process.env.KNOWLEDGE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_6nHVWHU7JzUVkxBzavXdYQ_s-uR4kE7";
 
 function clean(value) { return String(value ?? "").trim(); }
 
 async function getAuthorizedMember(request) {
-  if (!SERVICE_ROLE_KEY) throw new Error("إعدادات قاعدة المعرفة غير مكتملة على الخادم.");
   const authHeader = request.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!token) return { error: "يلزم تسجيل الدخول.", status: 401 };
 
-  const client = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  const client = createClient(SUPABASE_URL, ANON_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
@@ -27,7 +26,7 @@ async function getAuthorizedMember(request) {
     .limit(1)
     .maybeSingle();
 
-  if (memberError) return { error: "تعذر قراءة عضوية المدرسة.", status: 500 };
+  if (memberError) return { error: memberError.message || "تعذر قراءة عضوية المدرسة.", status: 500 };
   if (!member) return { error: "لا توجد مدرسة مفعلة مرتبطة بهذا الحساب.", status: 403 };
   if (!["school_admin", "teacher"].includes(member.role)) {
     return { error: "ليس لديك صلاحية رفع تقارير المدرسة.", status: 403 };
@@ -41,7 +40,7 @@ async function getAuthorizedMember(request) {
     .limit(1)
     .maybeSingle();
 
-  if (schoolError) return { error: "تعذر قراءة بيانات المدرسة.", status: 500 };
+  if (schoolError) return { error: schoolError.message || "تعذر قراءة بيانات المدرسة.", status: 500 };
   if (!school) return { error: "المدرسة المرتبطة بالحساب غير مفعلة.", status: 403 };
 
   return { userId: userData.user.id, member, school, client };
@@ -60,20 +59,26 @@ export async function POST(request) {
     if (!rows.length) return NextResponse.json({ error: "لا توجد سجلات في التقرير." }, { status: 400 });
     if (rows.length > 5000) return NextResponse.json({ error: "الحد الأقصى للرفع الواحد 5000 سجل." }, { status: 400 });
 
-    const payload = rows.map((row) => ({
-      school_id: auth.school.id,
-      report_date: reportDate,
-      request_number: clean(row.request_number),
-      applicant_name: clean(row.applicant_name),
-      service: clean(row.service),
-      status: clean(row.status),
-      status_date: clean(row.status_date) || null,
-      notes: clean(row.notes),
-      source_file_name: fileName,
-      uploaded_by: auth.userId,
-    })).filter((r) => r.request_number && r.status);
+    const payload = rows
+      .map((row) => ({
+        school_id: auth.school.id,
+        report_date: reportDate,
+        request_number: clean(row.request_number),
+        applicant_name: clean(row.applicant_name),
+        service: clean(row.service),
+        status: clean(row.status),
+        status_date: clean(row.status_date) || null,
+        notes: clean(row.notes),
+        source_file_name: fileName,
+        uploaded_by: auth.userId,
+      }))
+      .filter((r) => r.request_number && r.status);
 
-    if (!payload.length) return NextResponse.json({ error: "لم يتم العثور على سجلات صالحة. يجب أن يحتوي كل سجل على رقم الطلب والحالة." }, { status: 400 });
+    if (!payload.length) {
+      return NextResponse.json({
+        error: "لم يتم العثور على سجلات صالحة. يجب أن يحتوي كل سجل على رقم الطلب والحالة.",
+      }, { status: 400 });
+    }
 
     const { data, error } = await auth.client
       .from("request_status_reports")
@@ -81,7 +86,12 @@ export async function POST(request) {
       .select("id");
 
     if (error) return NextResponse.json({ error: error.message || "تعذر حفظ التقرير." }, { status: 500 });
-    return NextResponse.json({ ok: true, count: Array.isArray(data) ? data.length : payload.length, school: auth.school.name, reportDate });
+    return NextResponse.json({
+      ok: true,
+      count: Array.isArray(data) ? data.length : payload.length,
+      school: auth.school.name,
+      reportDate,
+    });
   } catch (error) {
     return NextResponse.json({ error: error?.message || "تعذر حفظ التقرير حاليًا." }, { status: 500 });
   }
