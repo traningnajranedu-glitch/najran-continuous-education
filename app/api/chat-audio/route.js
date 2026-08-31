@@ -5,12 +5,7 @@ const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || "qatarcentral";
 const AZURE_VOICE = process.env.AZURE_SPEECH_VOICE || "ar-SA-HamedNeural";
 
 function escapeXml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
+  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 }
 
 function speechText(value) {
@@ -24,29 +19,35 @@ function speechText(value) {
     .trim();
 }
 
+// This matches the verified Azure TTS request: simple SSML, no prosody extensions.
 function buildSsml(text) {
   const safe = escapeXml(speechText(text));
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}"><prosody rate="0%" pitch="0%" volume="+1dB">${safe}</prosody></voice></speak>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ar-SA"><voice name="${escapeXml(AZURE_VOICE)}">${safe}</voice></speak>`;
 }
 
 async function synthesize(text) {
   if (!AZURE_SPEECH_KEY) return { audio: null, error: "AZURE_SPEECH_KEY is missing" };
+
   const response = await fetch(`https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
     method: "POST",
     headers: {
       "Ocp-Apim-Subscription-Key": AZURE_SPEECH_KEY,
-      "X-Microsoft-OutputFormat": "audio-24khz-160kbitrate-mono-mp3",
+      "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
       "Content-Type": "application/ssml+xml",
-      "User-Agent": "Najran-Continuous-Education/1.0",
+      "User-Agent": "Najran-Continuous-Education-TTS/1.0",
     },
     body: buildSsml(text),
     cache: "no-store",
   });
+
   if (!response.ok) {
     const azureError = await response.text().catch(() => "");
+    console.error("[chat-audio] Azure TTS failed", { status: response.status, statusText: response.statusText, region: AZURE_SPEECH_REGION, voice: AZURE_VOICE, errorText: azureError.slice(0, 2000) });
     return { audio: null, error: `Azure TTS ${response.status}: ${azureError.slice(0, 500)}` };
   }
-  return { audio: Buffer.from(await response.arrayBuffer()).toString("base64"), error: null };
+
+  const buffer = await response.arrayBuffer();
+  return { audio: Buffer.from(buffer).toString("base64"), error: null };
 }
 
 export async function POST(request) {
@@ -62,12 +63,7 @@ export async function POST(request) {
     if (cookie) headers.Cookie = cookie;
 
     const origin = new URL(request.url).origin;
-    const chatResponse = await fetch(`${origin}/api/chat`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
+    const chatResponse = await fetch(`${origin}/api/chat`, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
     const chatData = await chatResponse.json().catch(() => null);
     if (!chatResponse.ok) return NextResponse.json(chatData || { error: "تعذر الاتصال بالمساعد" }, { status: chatResponse.status });
 
@@ -76,6 +72,7 @@ export async function POST(request) {
 
     const tts = await synthesize(reply);
     if (!tts.audio) console.error("[chat-audio] TTS failed:", tts.error);
+
     return NextResponse.json({ reply, audio: tts.audio, audioType: tts.audio ? "audio/mpeg" : null, ...(tts.error ? { audioError: tts.error } : {}) });
   } catch (error) {
     console.error("[chat-audio] Unexpected error:", error);
