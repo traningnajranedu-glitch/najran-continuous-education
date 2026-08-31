@@ -66,7 +66,7 @@ export default function Home(){
     const token=window.localStorage.getItem("najran_school_access_token");
     if(token) headers.Authorization=`Bearer ${token}`;
    }
-   const res=await fetch("/api/chat",{method:"POST",headers,body:JSON.stringify({message:value})});
+   const res=await fetch("/api/chat-audio",{method:"POST",headers,body:JSON.stringify({message:value})});
    const data=await res.json(); if(!res.ok)throw new Error(data?.error||"request failed");
    const reply=String(data.reply||"").trim()||"عذرًا، لم يصل رد من المساعد حاليًا.";
    setMessages(p=>[...p,{role:"assistant",text:reply,audio:data.audio||null,audioType:data.audioType||"audio/mpeg"}]);
