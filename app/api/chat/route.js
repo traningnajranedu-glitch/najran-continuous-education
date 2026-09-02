@@ -84,7 +84,7 @@ function buildResponseInstructions(message) {
   const asksForDetails = /(اختصاص|مهام|دور|تفاصيل|مسؤول|مسؤولة)/u.test(normalized);
   if (asksForDepartments && asksForDetails) return "أعطِ الإجابة مباشرة من المادة المرجعية. اذكر أسماء الإدارات والجهات الواردة في المرجع، ثم اشرح اختصاص كل إدارة فقط إذا كان اختصاصها مذكورًا في المرجع. لا تكتفِ بإحالة المستخدم إلى الرابط.";
   if (asksForDepartments) return "أعطِ أسماء الإدارات والجهات الواردة في المرجع مباشرة وبشكل منظم. لا تكتفِ بذكر الرابط بدل الإجابة.";
-  return "أجب عن سؤال المستفيد مباشرة اعتمادًا على المرجع والتقرير المدرسي إن توفر. استخدم العربية السعودية الواضحة والطبيعية. لا تخترع شرطًا أو إجراءً أو موعدًا أو رقمًا أو جهة غير موجودة في المرجع أو التقرير.";
+  return "أجب عن سؤال المستفيد مباشرة اعتمادًا على المرجع والتقرير المدرسي المنشور إن توفر. التقارير المنشورة والمعتمدة جزء من قاعدة المعرفة العامة ويمكن استخدامها لجميع مستخدمي المساعد دون طلب تسجيل دخول. إذا وجدت رقمًا أو اسمًا أو معلومة في التقرير، اذكرها مباشرة. لا تخترع شرطًا أو إجراءً أو موعدًا أو رقمًا أو جهة غير موجودة في المرجع أو التقرير.";
 }
 
 function readCookie(request, name) {
@@ -114,54 +114,6 @@ async function lookupRequestStatus(message, request) {
   return { protected: true, text: [`حالة الطلب رقم ${item.request_number}: ${item.status || "غير محددة"}.`, item.service ? `الخدمة: ${item.service}.` : "", item.status_date ? `تاريخ الحالة: ${item.status_date}.` : "", item.notes ? `ملاحظات: ${item.notes}.` : ""].filter(Boolean).join(" ") };
 }
 
-function detectPeriodicType(message) {
-  const text = String(message || "");
-  if (/(أداء الطلاب|اداء الطلاب|الطلاب|طالب|طلاب|تحصيل|غياب|حضور|درجات|اختبارات|تأخر دراسي)/u.test(text)) return "students";
-  if (/(أداء المعلمين|اداء المعلمين|المعلمين|معلم|المعلمون|تدريب|أداء مهني|انتظام المعلمين)/u.test(text)) return "teachers";
-  if (/(البيئة المدرسية|بيئة المدرسة|المبنى|المرافق|الصيانة|النظافة|السلامة|التجهيزات)/u.test(text)) return "environment";
-  if (/(الأنشطة|الانشطة|المبادرات|الفعاليات|إنجازات|انجازات|برامج المدرسة)/u.test(text)) return "activities";
-  if (/(تقرير المدرسة|التقرير الدوري|آخر تقرير|آخر تحديث|مستوى المدرسة|وضع المدرسة)/u.test(text)) return "all";
-  return null;
-}
-
-async function lookupPeriodicReports(message, request) {
-  const reportType = detectPeriodicType(message);
-  if (!reportType) return null;
-  const authHeader = request.headers.get("authorization") || "";
-  const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-  const accessToken = headerToken || readCookie(request, "school_access_token");
-  if (!accessToken) return { protected: true, text: "للاطلاع على التقارير المدرسية الدورية يلزم تسجيل الدخول المصرح به إلى بوابة المدرسة." };
-
-  const params = new URLSearchParams({
-    select: "id,report_type,report_date,title,summary,report_data,source_file_name,status,created_at",
-    status: "eq.approved",
-    order: "report_date.desc,created_at.desc",
-    limit: reportType === "all" ? "20" : "5",
-  });
-  if (reportType !== "all") params.set("report_type", `eq.${reportType}`);
-
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/school_periodic_reports?${params.toString()}`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-    cache: "no-store",
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) return { protected: true, text: "تعذر قراءة التقارير المدرسية الدورية حاليًا." };
-  const reports = Array.isArray(data) ? data : [];
-  if (!reports.length) return { protected: true, text: "لا يوجد تقرير دوري معتمد من المدرسة لهذا المجال حتى الآن." };
-
-  const labels = { students: "أداء الطلاب", teachers: "أداء المعلمين", environment: "البيئة المدرسية", activities: "الأنشطة والإنجازات" };
-  return {
-    protected: true,
-    text: reports.map((report) => [
-      `المجال: ${labels[report.report_type] || report.report_type}`,
-      `تاريخ التقرير: ${report.report_date || "غير متوفر"}`,
-      `العنوان: ${report.title || "غير محدد"}`,
-      `الملخص المعتمد: ${report.summary || "لا يوجد ملخص نصي"}`,
-      Array.isArray(report.report_data) && report.report_data.length ? `بيانات التقرير: ${JSON.stringify(report.report_data).slice(0, 12000)}` : "",
-    ].filter(Boolean).join("\n")).join("\n\n"),
-  };
-}
-
 async function speakReply(reply) {
   if (!AZURE_SPEECH_KEY) return null;
   let ttsResponse = await synthesize(buildSsml(reply, true));
@@ -183,17 +135,17 @@ export async function POST(request) {
       return NextResponse.json({ reply, audio, audioType: audio ? "audio/mpeg" : null });
     }
 
-    const periodicReports = await lookupPeriodicReports(message, request);
+    // Approved periodic reports are now retrieved through the public assistant knowledge layer.
+    // No school session is required for general report questions.
     const matches = await searchKnowledgeFromSupabase(message);
-    const periodicContext = periodicReports?.text ? `\n\nالتقارير المدرسية الدورية المعتمدة من المدرسة:\n${periodicReports.text}` : "";
-    let enrichedMessage = [
+    const periodicContext = "";
+    const enrichedMessage = [
       "طلب المستفيد:", message, "",
-      "مرجع قاعدة المعرفة الرسمية من Supabase:", buildKnowledgeContext(matches),
+      "مرجع قاعدة المعرفة الرسمية من Supabase، ويشمل التقارير المدرسية المنشورة والمعتمدة:", buildKnowledgeContext(matches),
       periodicContext, "",
       "تعليمات الإجابة:", buildResponseInstructions(message), "",
-      "قاعدة عامة:", "استخدم الحقائق الموجودة في المرجع والتقرير المدرسي إذا كان متاحًا. إذا لم تتوفر المعلومة، صرّح بذلك بوضوح بدل اختراع معلومات.",
+      "قاعدة عامة:", "استخدم الحقائق الموجودة في المرجع المنشور. إذا لم تتوفر المعلومة، صرّح بذلك بوضوح بدل اختراع معلومات. لا تطلب تسجيل الدخول للوصول إلى التقارير المنشورة والمعتمدة.",
     ].join("\n");
-    if (periodicReports?.text?.includes("يلزم تسجيل الدخول")) enrichedMessage += `\n\nتنبيه أمني: ${periodicReports.text}`;
 
     const n8nResponse = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
