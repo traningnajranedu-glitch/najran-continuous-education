@@ -47,8 +47,6 @@ export async function POST(request) {
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     if (!message) return NextResponse.json({ error: "الرسالة مطلوبة" }, { status: 400 });
 
-    // Text and knowledge are still handled by the existing /api/chat path.
-    // This endpoint only adds speech to that exact reply.
     const headers = { "Content-Type": "application/json; charset=utf-8" };
     const authorization = request.headers.get("authorization");
     if (authorization) headers.Authorization = authorization;
@@ -68,6 +66,16 @@ export async function POST(request) {
     const reply = String(chatData?.reply || "").trim();
     if (!reply) return NextResponse.json({ ...chatData, audio: null, audioType: null });
 
+    // استخدم الصوت القادم من n8n مباشرةً. هذا يمنع إعادة توليد الصوت مرتين.
+    if (typeof chatData?.audio === "string" && chatData.audio.length > 0) {
+      return NextResponse.json({
+        reply,
+        audio: chatData.audio,
+        audioType: chatData.audioType || "audio/mpeg",
+      });
+    }
+
+    // حل احتياطي مؤقت إذا لم يرسل n8n الصوت بعد.
     const audio = await synthesize(reply);
     return NextResponse.json({ reply, audio, audioType: audio ? "audio/mpeg" : null });
   } catch (error) {
