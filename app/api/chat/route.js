@@ -54,16 +54,20 @@ function buildSsml(text, enhanced = true) {
 }
 
 async function synthesize(ssml) {
-  return fetch(`https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+  if (!AZURE_SPEECH_KEY) return null;
+  let response = await fetch(`https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
     method: "POST",
     headers: {
       "Ocp-Apim-Subscription-Key": AZURE_SPEECH_KEY,
       "X-Microsoft-OutputFormat": "audio-24khz-160kbitrate-mono-mp3",
       "Content-Type": "application/ssml+xml",
+      "User-Agent": "Najran-Continuous-Education-TTS/1.0",
     },
     body: ssml,
     cache: "no-store",
   });
+  if (!response.ok) return null;
+  return Buffer.from(await response.arrayBuffer()).toString("base64");
 }
 
 function buildKnowledgeContext(matches) {
@@ -117,9 +121,8 @@ async function lookupRequestStatus(message, request) {
 async function speakReply(reply) {
   if (!AZURE_SPEECH_KEY) return null;
   let ttsResponse = await synthesize(buildSsml(reply, true));
-  if (!ttsResponse.ok) ttsResponse = await synthesize(buildSsml(reply, false));
-  if (!ttsResponse.ok) return null;
-  return Buffer.from(await ttsResponse.arrayBuffer()).toString("base64");
+  if (!ttsResponse) ttsResponse = await synthesize(buildSsml(reply, false));
+  return ttsResponse;
 }
 
 export async function POST(request) {
@@ -135,8 +138,6 @@ export async function POST(request) {
       return NextResponse.json({ reply, audio, audioType: audio ? "audio/mpeg" : null });
     }
 
-    // Approved periodic reports are now retrieved through the public assistant knowledge layer.
-    // No school session is required for general report questions.
     const matches = await searchKnowledgeFromSupabase(message);
     const periodicContext = "";
     const enrichedMessage = [
@@ -154,13 +155,33 @@ export async function POST(request) {
       cache: "no-store",
     });
     if (!n8nResponse.ok) return NextResponse.json({ error: "تعذر الاتصال بالمساعد التعليمي" }, { status: 502 });
-    const n8nData = await n8nResponse.json();
+
+    const contentType = n8nResponse.headers.get("content-type") || "";
+    let n8nData;
+    if (contentType.includes("application/json")) {
+      n8nData = await n8nResponse.json();
+    } else {
+      n8nData = {};
+    }
+
     const reply = String(n8nData?.reply ?? n8nData?.output ?? "").trim();
     if (!reply) return NextResponse.json({ error: "لم يصل رد من المساعد" }, { status: 502 });
 
+    // إذا أصبح n8n يعيد الصوت مع الرد، نمرره مباشرة دون إعادة توليده في Vercel.
+    const n8nAudio = typeof n8nData?.audio === "string" && n8nData.audio.length > 0 ? n8nData.audio : null;
+    if (n8nAudio) {
+      return NextResponse.json({
+        reply,
+        audio: n8nAudio,
+        audioType: n8nData?.audioType || "audio/mpeg",
+      });
+    }
+
+    // توافق مرحلي: إلى أن يتم تفعيل إخراج الصوت من n8n، يبقى التوليد المحلي كحل احتياطي.
     const audio = await speakReply(reply);
     return NextResponse.json({ reply, audio, audioType: audio ? "audio/mpeg" : null });
-  } catch {
+  } catch (error) {
+    console.error("[chat] Unexpected error:", error);
     return NextResponse.json({ error: "تعذر معالجة الطلب حاليًا" }, { status: 500 });
   }
 }
